@@ -7,6 +7,7 @@ import torch
 import torch.utils.data as Data
 from torch.autograd import Variable
 import numpy as np
+from matplotlib import pyplot as plt
 import random
 import os
 import h5py
@@ -16,7 +17,7 @@ MAX_ITER = 30000
 MOMENTUM = 0.9
 WEIGHT_DECAY = 0.0005
 GMMA = 1
-BASE_LR = 0.0008
+BASE_LR = 0.0005
 BATCH_SIZE = 128
 
 
@@ -67,14 +68,14 @@ class myDCNN(nn.Module):
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=16,
                       kernel_size=5, stride=1),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2)
         )
         self.conv2 = nn.Sequential(
             nn.Conv2d(in_channels=16, out_channels=16,
                       kernel_size=5, stride=1),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2)
         )
         self.conv3 = nn.Sequential(
             nn.Conv2d(in_channels=16, out_channels=16,
@@ -98,9 +99,9 @@ class myDCNN(nn.Module):
         x = self.fc2(x)
         return x
 
-def F1score(pred_y,label):
-    n = label.size
-    AA = np.zeros((4,4))
+def F1score(pred_y,label,AA):
+    n = label.shape[0]
+    #AA = np.zeros((4,4))
     for i in range(n):
         if label[i] == 0:
             if pred_y[i] == 0:
@@ -138,6 +139,7 @@ def F1score(pred_y,label):
                 AA[3][2] = AA[3][2]+1
             elif pred_y[i] ==3:
                 AA[3][3] = AA[3][3]+1
+    return AA
     F1n=2*AA[0][0]/(sum(AA[0][:])+sum(AA[:][0]))
     F1a=2*AA[1][1]/(sum(AA[1][:])+sum(AA[:][1]))
     F1o=2*AA[2][2]/(sum(AA[2][:])+sum(AA[:][2]))
@@ -146,43 +148,28 @@ def F1score(pred_y,label):
     print('f1n %1.4f,'%F1n,'f1a %1.4f,'%F1a,'flo %1.4f,'%F1o,'f1p %1.4f.'%F1p)
     print('f1 overall %1.4f'%F1)
 
-def test_accuracy(pred_y, test_label):
-    sumN, sumA, sumO, sumNoisy = [0, 0, 0, 0]
-    sumN1, sumA1, sumO1, sumNoisy1 = [0, 0, 0, 0]
-    for i in range(test_label.size(0)):
-        if test_label[i] == 0:
-            sumN = sumN + 1
-        elif test_label[i] == 1:
-            sumA = sumA + 1
-        elif test_label[i] == 2:
-            sumO = sumO + 1
-        else:
-            sumNoisy = sumNoisy + 1
-    for i in range(test_label.size(0)):
-        if test_label[i] == 0 and pred_y[i] == 0:
-            sumN1 = sumN1 + 1
-        elif test_label[i] == 1 and pred_y[i] == 1:
-            sumA1 = sumA1 + 1
-        elif test_label[i] == 2 and pred_y[i] == 2:
-            sumO1 = sumO1 + 1
-        elif test_label[i] == 3 and pred_y[i] == 3:
-            sumNoisy1 = sumNoisy1 + 1
-    return sumN1, sumN, sumA1, sumA, sumO1, sumO, sumNoisy1, sumNoisy
-
 
 def testdata(loader_test, mynet):
     mynet.eval()
-    N1, N, A1, A, O1, O, Noisy1, Noisy = [0, 0, 0, 0, 0, 0, 0, 0]
+    AA =np.zeros((4,4))
     for step, (b_x, b_y) in enumerate(loader_test):
         b_x = Variable(b_x).cuda()
         b_y = Variable(b_y).cuda()
         output = mynet(b_x)
         b_y = b_y.long()
         pred_y = torch.max(output, 1)[1].data.squeeze().cpu().numpy()
-        sumN1, sumN, sumA1, sumA, sumO1, sumO, sumNoisy1, sumNoisy = test_accuracy(pred_y, b_y)
-        N1, N, A1, A, O1, O, Noisy1, Noisy = [N1 + sumN1, N + sumN, A1 + sumA1, A + sumA, O1 + sumO1, O + sumO,Noisy1 + sumNoisy1, Noisy + sumNoisy]
-    print('test accuary: N:', float(N1 / N), ' A:', float(A1 / A), ' O:', float(O1 / O), ' Noisy:',float(Noisy1 / Noisy))
-    print('N1:%d/N:%d',N1,N,'A1:%d/A:%d',A1,A,'O1:%d/O:%d',O1,O,'N1:%d/N:%d',Noisy1,Noisy)
+        AA1 = F1score(pred_y, b_y,AA)
+        AA = AA +AA1
+    F1n = 2 * AA[0][0] / (sum(AA[0][:]) + sum(AA[:][0]))
+    F1a = 2 * AA[1][1] / (sum(AA[1][:]) + sum(AA[:][1]))
+    F1o = 2 * AA[2][2] / (sum(AA[2][:]) + sum(AA[:][2]))
+    F1p = 2 * AA[3][3] / (sum(AA[3][:]) + sum(AA[:][3]))
+    F1 = (F1n + F1a + F1o + F1p) / 4
+    print('f1n %1.4f,' % F1n, 'f1a %1.4f,' % F1a, 'flo %1.4f,' % F1o, 'f1p %1.4f.' % F1p)
+    print('f1 overall %1.4f' % F1)
+    return F1,F1n,F1a,F1o,F1p
+    #print('test accuary: N:', float(N1 / N), ' A:', float(A1 / A), ' O:', float(O1 / O), ' Noisy:',float(Noisy1 / Noisy))
+    #print('N1:%d/N:%d',N1,N,'A1:%d/A:%d',A1,A,'O1:%d/O:%d',O1,O,'N1:%d/N:%d',Noisy1,Noisy)
 
 
 def restore_parameters(epoch):
@@ -207,8 +194,8 @@ loader = Data.DataLoader(
     num_workers=2
 )
 
-#mynet = myDCNN()
-mynet = restore_parameters(976)
+mynet = myDCNN()
+#mynet = restore_parameters(300)
 if torch.cuda.is_available():
     mynet.cuda()
 
@@ -218,7 +205,9 @@ opt_SGD = torch.optim.SGD([
 loss_func = torch.nn.CrossEntropyLoss()
 
 if __name__ =='__main__':
-    for epoch in range(977,MAX_ITER):
+    loss_save =[]
+    F1_save = [[],[],[],[],[]]
+    for epoch in range(1000):
         mynet.train()
         print('Epoch:', epoch)
         for step, (b_x, b_y) in enumerate(loader):
@@ -230,14 +219,34 @@ if __name__ =='__main__':
             #print('output',output.shape)
             b_y = b_y.long()
             loss = loss_func(output, b_y)
+            loss_save.append(loss.data[0])
             opt_SGD.zero_grad()
             loss.backward()
             opt_SGD.step()
             pred_y = torch.max(output, 1)[1].data.squeeze().cpu().numpy()
             b_y = b_y.cpu().numpy()
-            F1score(pred_y,b_y)
+
             #testdata(loader_test, mynet)
             accuracy = float((pred_y == b_y).sum()) / float(b_y.size)
             print('Epoch:', epoch, '|step:', step, '|loss:%.4f' % loss.data[0], 'train_accuracy:%.2f' % accuracy)
-        testdata(loader_test, mynet)
-        torch.save(mynet.state_dict(), './model/mynet_' + str(epoch) + '_' + '68params.pkl')  # save parameters of net
+        scoreAll,scoreN,scoreA,scoreO,scoreP = testdata(loader_test, mynet)
+
+        F1_save[0].append(scoreAll)
+        F1_save[1].append(scoreN)
+        F1_save[2].append( scoreA)
+        F1_save[3].append( scoreO)
+        F1_save[4].append( scoreP)
+        torch.save(mynet.state_dict(), './modellr0005relu/mynet_' + str(epoch) + '_' + '68params.pkl')  # save parameters of net
+    plt.plot(loss_save)
+    plt.savefig('./lossimage/loss_lr0005relu.png')
+    plt.xlabel('steps')
+    plt.ylabel('loss')
+    plt.close()
+    labels=['F1','F1n','F1a','F1o','F1p']
+    for i,l_his in enumerate(F1_save):
+         plt.plot(l_his,label=labels[i])
+    plt.legend(loc='best')
+    plt.xlabel('epoch')
+    plt.ylabel('score')
+    plt.savefig('./lossimage/F1lr0005relu.png')
+    plt.close()
